@@ -4,7 +4,7 @@ stages:
     - test
 
 .debian-amd64-common:
-    image: registry.videolan.org/dav1d-debian-unstable:20240113214804
+    image: registry.videolan.org/dav1d-debian-unstable:20240226203953
     stage: build
     tags:
         - docker
@@ -220,7 +220,7 @@ build-debian-avx512:
         - cd build
         - time meson test -v --suite checkasm
 
-build-debian-clang14:
+build-debian-clang:
     extends: .debian-amd64-common
     variables:
         CC: clang
@@ -355,6 +355,18 @@ build-debian-aarch64-clang-5:
         - ninja -C build
         - cd build && meson test -v
 
+build-debian-aarch64-clang-17:
+    extends: .debian-amd64-common
+    variables:
+        QEMU_LD_PREFIX: /usr/aarch64-linux-gnu/
+    script:
+        - meson setup build --buildtype release
+                            -Dtrim_dsp=false
+                            --werror
+                            --cross-file package/crossfiles/aarch64-linux-clang.meson
+        - ninja -C build
+        - cd build && meson test -v
+
 build-macos:
     stage: build
     tags:
@@ -427,9 +439,12 @@ build-debian-riscv64:
         - meson setup build --buildtype release
                             -Dtrim_dsp=false
                             --werror
-                            --cross-file package/crossfiles/riscv64-linux.meson
+                            --cross-file package/crossfiles/${CROSSFILE}.meson
         - ninja -C build
         - cd build && meson test -v
+    parallel:
+      matrix:
+        - CROSSFILE: [riscv64-linux, riscv64-linux-clang]
 
 build-debian-loongarch64:
     extends: .debian-amd64-common
@@ -734,6 +749,33 @@ test-debian-riscv64:
                       "rv64,v=true,vext_spec=v1.0,vlen=512,elen=64",
                       "rv64,v=true,vext_spec=v1.0,vlen=1024,elen=64" ]
 
+test-debian-aarch64-qemu:
+    extends:
+        - .debian-amd64-common
+        - .test-common
+    needs: ["build-debian-aarch64"]
+    script:
+        - meson setup build --buildtype release
+                            -Dtestdata_tests=true
+                            -Dlogging=false
+                            -Dtrim_dsp=false
+                            --cross-file package/crossfiles/aarch64-linux.meson
+        - ninja -C build
+        - cd build && time meson test -v --timeout-multiplier 2
+    variables:
+        QEMU_LD_PREFIX: /usr/aarch64-linux-gnu/
+    parallel:
+      matrix:
+        # sve-default-vector-length sets the max vector length in bytes;
+        # the default is 64, allowing up to 512 bit vectors. Testing 1024
+        # and 2048 bit vectors requires raising this limit. The sve<n>
+        # option sets the active vector length in bits.
+        - QEMU_CPU: [ "max,sve-default-vector-length=256,sve128=on",
+                      "max,sve-default-vector-length=256,sve256=on",
+                      "max,sve-default-vector-length=256,sve512=on",
+                      "max,sve-default-vector-length=256,sve1024=on",
+                      "max,sve-default-vector-length=256,sve2048=on" ]
+
 test-debian-armv7-clang-5:
     extends:
         - .debian-armv7-common
@@ -785,11 +827,11 @@ test-debian-argon:
         - avx2
     script:
         - *test-argon-script
-        - ../tests/dav1d_argon.bash -t 2 -j 4 -c 0         || exit_code=$((exit_code + $?))
-        - ../tests/dav1d_argon.bash -t 2 -j 4 -c sse2 -g 0 || exit_code=$((exit_code + $?))
-        - ../tests/dav1d_argon.bash -t 2 -j 4 -c ssse3     || exit_code=$((exit_code + $?))
-        - ../tests/dav1d_argon.bash -t 2 -j 4 -c sse41     || exit_code=$((exit_code + $?))
-        - ../tests/dav1d_argon.bash -t 2 -j 4 -c avx2      || exit_code=$((exit_code + $?))
+        - ../tests/dav1d_argon.bash -t 1 -c 0         || exit_code=$((exit_code + $?))
+        - ../tests/dav1d_argon.bash -t 2 -c sse2 -g 0 || exit_code=$((exit_code + $?))
+        - ../tests/dav1d_argon.bash -t 3 -c ssse3     || exit_code=$((exit_code + $?))
+        - ../tests/dav1d_argon.bash -t 4 -c sse41     || exit_code=$((exit_code + $?))
+        - ../tests/dav1d_argon.bash -t 5 -c avx2      || exit_code=$((exit_code + $?))
         - if [ $exit_code -ne 0 ]; then exit $exit_code; fi
 
 test-debian32-argon:
@@ -804,9 +846,9 @@ test-debian32-argon:
                             --cross-file package/crossfiles/i686-linux32.meson
         - cd build && ninja
         - exit_code=0
-        - ../tests/dav1d_argon.bash -t 2 -j 4 -c sse2       || exit_code=$((exit_code + $?))
-        - ../tests/dav1d_argon.bash -t 2 -j 4 -c ssse3      || exit_code=$((exit_code + $?))
-        - ../tests/dav1d_argon.bash -t 2 -j 4 -c sse41 -g 0 || exit_code=$((exit_code + $?))
+        - ../tests/dav1d_argon.bash -t 2 -c sse2       || exit_code=$((exit_code + $?))
+        - ../tests/dav1d_argon.bash -t 2 -c ssse3      || exit_code=$((exit_code + $?))
+        - ../tests/dav1d_argon.bash -t 2 -c sse41 -g 0 || exit_code=$((exit_code + $?))
         - if [ $exit_code -ne 0 ]; then exit $exit_code; fi
 
 test-debian-argon-avx512:
@@ -819,7 +861,7 @@ test-debian-argon-avx512:
         - amd64-avx512
     script:
         - *test-argon-script
-        - ../tests/dav1d_argon.bash -t 2 -j 1 -c avx512icl || exit_code=$((exit_code + $?))
+        - ../tests/dav1d_argon.bash -t 2 -c avx512icl || exit_code=$((exit_code + $?))
         - if [ $exit_code -ne 0 ]; then exit $exit_code; fi
 
 .test-debian-arm-argon:
@@ -831,9 +873,9 @@ test-debian-argon-avx512:
                             -Dtrim_dsp=false
         - cd build && ninja
         - exit_code=0
-        - ../tests/dav1d_argon.bash -t 2 -j 4 -c 0         || exit_code=$((exit_code + $?))
-        - ../tests/dav1d_argon.bash -t 2 -j 4 -c neon      || exit_code=$((exit_code + $?))
-        - ../tests/dav1d_argon.bash -t 2 -j 4 -c neon -g 0 || exit_code=$((exit_code + $?))
+        - ../tests/dav1d_argon.bash -t 2 -c 0         || exit_code=$((exit_code + $?))
+        - ../tests/dav1d_argon.bash -t 2 -c neon      || exit_code=$((exit_code + $?))
+        - ../tests/dav1d_argon.bash -t 2 -c neon -g 0 || exit_code=$((exit_code + $?))
         - if [ $exit_code -ne 0 ]; then exit $exit_code; fi
 
 test-debian-armv7-argon:
