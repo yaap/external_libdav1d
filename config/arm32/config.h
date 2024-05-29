@@ -35,6 +35,8 @@
 
 #define CONFIG_LOG 0
 
+#define CONFIG_MACOS_KPERF 0
+
 #define ENDIANNESS_BIG 0
 
 #define HAVE_ASM 1
