@@ -15,7 +15,7 @@ third_party {
   identifier {
     type: "Git"
     value: "https://code.videolan.org/videolan/dav1d.git"
-    version: "3ad16c7448fce01ad63d0d29f79602a7bf4c1892"
+    version: "c720f4d3556a01916324aea155555d3efba842e8"
     closest_version: "1.5.2"
   }
 }
